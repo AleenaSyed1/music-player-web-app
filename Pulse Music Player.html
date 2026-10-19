@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pulse Music Player</title>
+<style>
+:root{--bg:#e9eef3;--panel:#fff;--ink:#14213d;--mute:#5d6b82;--line:#d3dce6;--acc:#2f5bff;--accink:#fff;--hi:#ffc914;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1626;--panel:#18223a;--ink:#eef2fb;--mute:#97a4bf;--line:#2a3654;--acc:#6f8cff;--accink:#0f1626;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1626;--panel:#18223a;--ink:#eef2fb;--mute:#97a4bf;--line:#2a3654;--acc:#6f8cff;--accink:#0f1626;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Trebuchet MS","Segoe UI",system-ui,sans-serif}
+.app{max-width:1000px;margin:0 auto;padding:20px;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:20px}
+@media(max-width:760px){.app{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+.disc{width:min(100%,230px);aspect-ratio:1;margin:0 auto 20px;border-radius:50%;background:radial-gradient(circle,var(--hi) 0 11%,var(--ink) 12% 14%,var(--acc) 15% 40%,var(--ink) 41% 43%,var(--acc) 44% 70%,var(--ink) 71%);}
+.disc.spin{animation:spin 6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.disc.spin{animation:none}}
+h1{font-size:1.5rem;margin:0 0 2px}
+.sub{color:var(--mute);margin:0 0 16px}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.times{display:flex;justify-content:space-between;color:var(--mute);font-size:.85rem}
+.ctl{display:flex;justify-content:center;align-items:center;gap:14px;margin:14px 0}
+button{font:inherit;cursor:pointer;color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
+.ib{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--panel);font-size:1.1rem}
+.ib.on{background:var(--hi);color:#14213d;border-color:var(--hi)}
+.play{width:64px;height:64px;background:var(--acc);color:var(--accink);border:0;font-size:1.5rem}
+.vol{display:flex;align-items:center;gap:10px}
+.search{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.chip{padding:6px 14px;border:1px solid var(--line);border-radius:99px;background:none}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+ul{list-style:none;margin:0;padding:0;max-height:420px;overflow:auto}
+li button{width:100%;display:flex;gap:12px;align-items:center;text-align:left;padding:10px;border:0;border-bottom:1px solid var(--line);background:none}
+li.cur button{background:var(--bg);box-shadow:inset 4px 0 0 var(--acc)}
+.t{flex:1;min-width:0}.t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t span,.d{color:var(--mute);font-size:.85rem}
+.add{display:inline-block;margin-top:12px;padding:8px 14px;border:1px dashed var(--mute);border-radius:10px;cursor:pointer}
+.empty{padding:20px;color:var(--mute)}
+</style>
+</head>
+<body>
+<main class="app">
+ <section class="panel" aria-label="Now playing">
+  <div class="disc" id="disc"></div>
+  <h1 id="title">Pick a track</h1>
+  <p class="sub" id="meta">Choose from the playlist</p>
+  <input type="range" id="seek" min="0" max="100" value="0" step="0.1" aria-label="Seek">
+  <div class="times"><span id="cur">0:00</span><span id="dur">0:00</span></div>
+  <div class="ctl">
+   <button class="ib" id="shuf" aria-label="Shuffle" aria-pressed="false">⤮</button>
+   <button class="ib" id="prev" aria-label="Previous track">⏮</button>
+   <button class="ib play" id="play" aria-label="Play">▶</button>
+   <button class="ib" id="next" aria-label="Next track">⏭</button>
+  </div>
+  <div class="vol"><span aria-hidden="true">🔈</span><input type="range" id="vol" min="0" max="1" step="0.01" value="0.7" aria-label="Volume"></div>
+ </section>
+ <section class="panel" aria-label="Playlist">
+  <input class="search" id="q" type="search" placeholder="Search by title or artist" aria-label="Search music">
+  <div class="chips" id="chips"></div>
+  <ul id="list"></ul>
+  <label class="add">Add your own songs<input type="file" id="file" accept="audio/*" multiple hidden></label>
+ </section>
+</main>
+<script>
+const R=16000;
+function wav(seq,bpm,type,rep){
+  const beat=60/bpm,out=[];
+  for(let r=0;r<rep;r++)for(const [n,b] of seq){
+    const d=Math.floor(b*beat*R),f=n===null?0:261.63*Math.pow(2,n/12);
+    for(let i=0;i<d;i++){
+      const t=i/R,p=2*Math.PI*f*t;
+      let v=!f?0:type==="sq"?Math.sign(Math.sin(p))*.5:type==="tri"?Math.asin(Math.sin(p))*.64:Math.sin(p);
+      out.push(v*Math.min(1,i/150)*Math.pow(1-i/d,.5)*.5);
+    }
+  }
+  const buf=new ArrayBuffer(44+out.length*2),w=new DataView(buf);
+  const s=(o,x)=>{for(let i=0;i<x.length;i++)w.setUint8(o+i,x.charCodeAt(i))};
+  s(0,"RIFF");w.setUint32(4,36+out.length*2,true);s(8,"WAVEfmt ");w.setUint32(16,16,true);
+  w.setUint16(20,1,true);w.setUint16(22,1,true);w.setUint32(24,R,true);w.setUint32(28,R*2,true);
+  w.setUint16(32,2,true);w.setUint16(34,16,true);s(36,"data");w.setUint32(40,out.length*2,true);
+  out.forEach((v,i)=>w.setInt16(44+i*2,Math.max(-1,Math.min(1,v))*32767,true));
+  return URL.createObjectURL(new Blob([buf],{type:"audio/wav"}));
+}
+const tracks=[
+ {title:"Slow Tide",artist:"Demo Synth",cat:"Chill",url:wav([[0,2],[4,2],[7,2],[4,2],[5,2],[2,2],[0,4]],70,"sin",2)},
+ {title:"Late Window",artist:"Demo Synth",cat:"Chill",url:wav([[9,2],[7,1],[4,1],[2,2],[4,2],[0,4],[null,1]],64,"sin",2)},
+ {title:"Neon Sprint",artist:"Demo Synth",cat:"Energetic",url:wav([[0,.5],[7,.5],[12,.5],[7,.5],[0,.5],[7,.5],[14,.5],[7,.5]],150,"sq",6)},
+ {title:"Rush Hour",artist:"Demo Synth",cat:"Energetic",url:wav([[4,.5],[4,.5],[9,.5],[11,.5],[12,1],[11,.5],[9,.5],[4,1]],140,"sq",5)},
+ {title:"Deep Work",artist:"Demo Synth",cat:"Focus",url:wav([[0,1],[2,1],[4,1],[7,1],[4,1],[2,1]],90,"tri",5)},
+ {title:"Quiet Grid",artist:"Demo Synth",cat:"Focus",url:wav([[7,1.5],[5,.5],[4,1],[0,1],[2,2],[null,1]],80,"tri",4)}
+].map((t,i)=>({...t,id:i}));
+const $=id=>document.getElementById(id),audio=new Audio();
+let cat="All",query="",cur=-1,shuffle=false,nid=tracks.length;
+const fmt=s=>isFinite(s)?Math.floor(s/60)+":"+String(Math.floor(s%60)).padStart(2,"0"):"0:00";
+const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const visible=()=>tracks.filter(t=>(cat==="All"||t.cat===cat)&&(t.title+" "+t.artist).toLowerCase().includes(query));
+function chips(){
+  const cats=["All",...new Set(tracks.map(t=>t.cat))];
+  $("chips").innerHTML=cats.map(c=>`<button class="chip" aria-pressed="${c===cat}" data-c="${esc(c)}">${esc(c)}</button>`).join("");
+}
+function list(){
+  const v=visible();
+  $("list").innerHTML=v.length?v.map(t=>`<li class="${t.id===cur?"cur":""}"><button data-id="${t.id}"><span class="t"><b>${esc(t.title)}</b><span>${esc(t.artist)} · ${esc(t.cat)}</span></span><span class="d">${t.id===cur&&!audio.paused?"Playing":""}</span></button></li>`).join(""):`<li class="empty">No songs match. Try another search or category.</li>`;
+}
+function load(id,go=true){
+  const t=tracks.find(x=>x.id===id);if(!t)return;
+  cur=id;audio.src=t.url;$("title").textContent=t.title;$("meta").textContent=t.artist+" · "+t.cat;
+  if(go)audio.play().catch(()=>{});list();
+}
+function step(d){
+  const v=visible();if(!v.length)return;
+  let i=v.findIndex(t=>t.id===cur);
+  if(shuffle&&v.length>1){let n;do{n=Math.floor(Math.random()*v.length)}while(n===i);i=n}
+  else i=i<0?0:(i+d+v.length)%v.length;
+  load(v[i].id);
+}
+$("play").onclick=()=>{if(cur<0){const v=visible();if(v.length)load(v[0].id);return}audio.paused?audio.play():audio.pause()};
+$("next").onclick=()=>step(1);$("prev").onclick=()=>step(-1);
+$("shuf").onclick=e=>{shuffle=!shuffle;e.currentTarget.classList.toggle("on",shuffle);e.currentTarget.setAttribute("aria-pressed",shuffle)};
+$("vol").oninput=e=>audio.volume=+e.target.value;audio.volume=.7;
+$("seek").oninput=e=>{if(audio.duration)audio.currentTime=e.target.value/100*audio.duration};
+audio.onplay=audio.onpause=()=>{const p=!audio.paused;$("play").textContent=p?"⏸":"▶";$("play").setAttribute("aria-label",p?"Pause":"Play");$("disc").classList.toggle("spin",p);list()};
+audio.ontimeupdate=()=>{$("cur").textContent=fmt(audio.currentTime);if(audio.duration)$("seek").value=audio.currentTime/audio.duration*100};
+audio.onloadedmetadata=()=>$("dur").textContent=fmt(audio.duration);
+audio.onended=()=>step(1);
+$("q").oninput=e=>{query=e.target.value.toLowerCase().trim();list()};
+$("chips").onclick=e=>{const b=e.target.closest("button");if(b){cat=b.dataset.c;chips();list()}};
+$("list").onclick=e=>{const b=e.target.closest("button");if(b)load(+b.dataset.id)};
+$("file").onchange=e=>{
+  for(const f of e.target.files)tracks.push({id:nid++,title:f.name.replace(/\.[^.]+$/,""),artist:"My files",cat:"My files",url:URL.createObjectURL(f)});
+  chips();list();e.target.value="";
+};
+chips();list();
+</script>
+</body>
+</html>
